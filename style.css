@@ -43,8 +43,15 @@ body.actionBusy{cursor:progress}body.actionBusy button{pointer-events:none}
 .settingsBody{padding:12px;display:grid;gap:10px}
 .pillWrap{display:flex;gap:6px;flex-wrap:wrap}
 .sectionActions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin-bottom:6px}
+.settingsGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}
+.settingsTile{border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:12px;background:rgba(15,46,34,.38);display:grid;gap:8px;align-content:start;min-height:118px}
+.settingsTile .cardTitle{font-size:14px;line-height:1.25}
+.settingsTile .tileBody{display:grid;gap:4px}
+.settingsTile .tileActions{margin-top:auto;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+.settingsTile .tileActions button{padding:8px 10px;font-size:12px}
+.settingsTile.wide{grid-column:span 2}
 .compactRow{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .compactRow>div{min-width:0}
 .settingsForm{display:grid;gap:10px}
 .settingsForm textarea{min-height:130px}
-@media (max-width:700px){.compactRow{align-items:stretch;flex-direction:column}.sectionActions{justify-content:flex-start}}
+@media (max-width:700px){.compactRow{align-items:stretch;flex-direction:column}.sectionActions{justify-content:flex-start}.settingsTile.wide{grid-column:auto}}
