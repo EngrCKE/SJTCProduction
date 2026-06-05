@@ -1,10 +1,10 @@
 /***********************
- * SJTC Production Department Dashboard v1.1.6
+ * SJTC Production Department Dashboard v1.2
  * Frontend for GitHub Pages
  * Set PRODUCTION_API_URL to your Cloudflare Worker URL after deployment.
  ***********************/
 const PRODUCTION_API_URL = "https://prodman.sjtc-kobempeynado.workers.dev/"; // Example: "https://production.sjtc-kobempeynado.workers.dev/"
-const LOGISTICS_API_URL = "https://logistics.sjtc-kobempeynado.workers.dev/"; // existing logistics Worker
+// Logistics is now native to this Production Dashboard database.
 const ADMIN_PIN_KEY = "sjtc_production_admin_pin";
 const DEMO_PIN = "123456";
 const AUTO_REFRESH_MS = 60000; // Auto-sync interval. Change to 30000 for 30 seconds, 120000 for 2 minutes.
@@ -30,8 +30,6 @@ const cleanSO = v => String(v || "").trim().replace(/^SO[-\s]*/i, "");
 let autoRefreshTimer = null;
 let isAutoRefreshing = false;
 let actionBusy = false;
-const LOCAL_LOGISTICS_KEY = "sjtc_local_logistics_submitted_v116";
-
 
 let state = {
   admin: false,
@@ -92,12 +90,6 @@ async function api(action, payload){
   const res = await fetch(`${PRODUCTION_API_URL}?action=${encodeURIComponent(action)}`, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload || {}) });
   const j = await res.json();
   if(!j.ok) throw new Error(j.error || "API error");
-  return j;
-}
-async function logisticsApi(action, payload){
-  const res = await fetch(`${LOGISTICS_API_URL}?action=${encodeURIComponent(action)}`, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload || {}) });
-  const j = await res.json();
-  if(!j.ok) throw new Error(j.error || "Logistics API error");
   return j;
 }
 function demoApi(action, body){
@@ -183,56 +175,21 @@ function demoApi(action, body){
 }
 
 
-function getLocalLogisticsMirror(){
-  try { return JSON.parse(localStorage.getItem(LOCAL_LOGISTICS_KEY) || "[]"); }
-  catch(_) { return []; }
+function normalizeLogisticsRecords(){
+  state.logisticsRequests = (state.logisticsRequests || [])
+    .filter(r => String(r.Active || "Y").toUpperCase() !== "N")
+    .map(r => ({...r, Payload: normalizePayload(r.Payload || r.PayloadJSON || {})}));
+  state.logisticsRequests.forEach(r => { if(r.Payload) r.Payload.SONumber = cleanSO(r.Payload.SONumber); });
 }
-function saveLocalLogisticsMirror(list){
-  localStorage.setItem(LOCAL_LOGISTICS_KEY, JSON.stringify((list || []).slice(0,250)));
-}
-function upsertLocalLogisticsMirror(request){
-  if(!request || !request.RequestID) return;
-  const list = getLocalLogisticsMirror();
-  const idx = list.findIndex(x => String(x.RequestID) === String(request.RequestID));
-  if(idx >= 0) list[idx] = {...list[idx], ...request, Payload:{...(list[idx].Payload||{}), ...(request.Payload||{})}};
-  else list.unshift(request);
-  saveLocalLogisticsMirror(list);
-}
-function removeLocalLogisticsMirror(requestId){
-  saveLocalLogisticsMirror(getLocalLogisticsMirror().filter(x => String(x.RequestID) !== String(requestId)));
-}
-function mergeLogisticsLists(base, incoming){
-  const map = new Map();
-  (base || []).forEach(r => { if(r && r.RequestID) map.set(String(r.RequestID), r); });
-  (incoming || []).forEach(r => { if(r && r.RequestID) map.set(String(r.RequestID), {...(map.get(String(r.RequestID))||{}), ...r, Payload:{...((map.get(String(r.RequestID))||{}).Payload||{}), ...(r.Payload||{})}}); });
-  return Array.from(map.values()).sort((a,b)=> new Date(a.StartDT||a.CreatedAt||0) - new Date(b.StartDT||b.CreatedAt||0));
-}
-function logisticsWindowStartISO(){
-  const d = currentWeekDates()[0];
-  return d.toISOString();
+function normalizePayload(raw){
+  if(!raw) return {};
+  if(typeof raw === "object") return raw;
+  try { return JSON.parse(raw || "{}"); } catch(_) { return {}; }
 }
 async function loadExternalLogisticsRequests(silent){
-  if(!LOGISTICS_API_URL) return;
-  let external = [];
-  const pin = localStorage.getItem(ADMIN_PIN_KEY) || "";
-  if(state.admin && pin){
-    try{
-      const data = await logisticsApi("managerListRequests", { pin, startISO: logisticsWindowStartISO() });
-      external = data.items || [];
-    }catch(err){
-      if(!silent) console.warn("Admin logistics sync failed; falling back to public schedule.", err);
-    }
-  }
-  if(!external.length){
-    try{
-      const data = await logisticsApi("publicSchedule", { startISO: logisticsWindowStartISO() });
-      external = data.items || [];
-    }catch(err){
-      if(!silent) console.warn("Public logistics sync failed.", err);
-    }
-  }
-  state.logisticsRequests = mergeLogisticsLists(getLocalLogisticsMirror(), external);
-  state.logisticsRequests.forEach(r => { if(r.Payload) r.Payload.SONumber = cleanSO(r.Payload.SONumber); });
+  // v1.2: logistics is native to the Production Dashboard database.
+  // Requests are loaded by productionBootstrap from LogisticsRequests_V1.
+  normalizeLogisticsRecords();
 }
 function setLoading(on, text="Working..."){
   const el = $("loadingOverlay");
@@ -565,7 +522,7 @@ function renderLogistics(){
   const scheduled=state.logisticsRequests.filter(r=>r.Status!=="PENDING");
   const deliveryItems = itemsForDeliveryList();
   $("page-logistics").innerHTML = `
-    <div class="pageTitle"><div><h1>Logistics</h1><div class="hint">Integrated logistics module. Staff can submit and view requests. Admin can schedule or reschedule by drag/drop.</div></div><button class="primary" id="btnSubmitLogisticsTop">+ Submit Logistics Request</button></div>
+    <div class="pageTitle"><div><h1>Logistics</h1><div class="hint">Native logistics module. Staff can submit and view requests. Admin can schedule or reschedule by drag/drop.</div></div><button class="primary" id="btnSubmitLogisticsTop">+ Submit Logistics Request</button></div>
     <div class="split"><div class="panel"><h3>Pending Requests</h3><div class="hint">${state.admin ? "Drag pending cards into a calendar day to schedule. Click any card to view details." : "Read-only: pending requests awaiting approval/scheduling. Click any card to view details."}</div><div class="pendingList" style="margin-top:10px">${pending.map(pendingLogisticsCard).join("") || `<div class="hint">No pending requests.</div>`}</div></div>
       <div class="panel"><div class="line" style="justify-content:space-between"><h3>1-Week Rolling Calendar</h3><div class="line"><button id="logPrev">← Previous Week</button><button class="primary" id="logCurrent">Current Week</button><button id="logNext">Next Week →</button></div></div><div class="hint">${state.admin ? "Drag scheduled cards to a different day to reschedule." : "Read-only weekly logistics calendar."}</div><div class="calendarGrid">${dates.map(d=>logisticsDayBox(d,scheduled)).join("")}</div></div></div>
     <div class="panel" style="margin-top:12px"><div class="line" style="justify-content:space-between"><div><h3>Dispatch & Gate Pass</h3><div class="hint">View confirmed dispatches for the selected week and print gate passes.</div></div><div class="line"><button class="primary" id="btnOpenDispatchView">Open Dispatch View</button><button class="ok" id="btnPrintGatePasses">Generate Gate Pass</button></div></div></div>
@@ -690,25 +647,14 @@ async function confirmSchedule(){
   const passengerNames=selectedPassengerNames();
   const passengerIds=selectedPassengerIds();
   const updates={Status:"CONFIRMED",StartDT:start.toISOString(),EndDT:end.toISOString(),DriverCode:$("schedDriver").value.trim(),VehicleCode:$("schedVehicle").value.trim(),Payload:{...(r.Payload||{}),Passengers:passengerNames,PassengerIDs:passengerIds,Installers:passengerNames,Notes:$("schedRemarks").value.trim()}};
-  if(LOGISTICS_API_URL && state.admin){
-    await logisticsApi("managerUpdate", { pin: localStorage.getItem(ADMIN_PIN_KEY)||"", requestId:r.RequestID, updates });
-  } else {
-    await api("scheduleLogisticsRequestLocal",{requestId:r.RequestID, updates});
-  }
-  upsertLocalLogisticsMirror({...r, ...updates});
+  await api("scheduleLogisticsRequest", { pin: localStorage.getItem(ADMIN_PIN_KEY)||"", requestId:r.RequestID, updates });
   closeModal("logisticsScheduleModal"); await load();
 }
 async function returnLogisticsRequestToPending(requestId){
   if(!state.admin) return alert("Admin mode is required.");
   if(!confirm("Return this logistics request to PENDING? Driver, vehicle, and passenger assignments will be cleared.")) return;
   try{
-    if(LOGISTICS_API_URL){
-      await logisticsApi("managerUpdate", { pin: localStorage.getItem(ADMIN_PIN_KEY)||"", requestId, updates:{ Status:"PENDING", DriverCode:"", VehicleCode:"", TripStatus:"READY" } });
-    } else {
-      await api("returnLogisticsRequestPendingLocal", { requestId });
-    }
-    const existing = state.logisticsRequests.find(x=>x.RequestID===requestId) || {};
-    upsertLocalLogisticsMirror({...existing, Status:"PENDING", DriverCode:"", VehicleCode:"", TripStatus:"READY"});
+    await api("returnLogisticsRequestPending", { pin: localStorage.getItem(ADMIN_PIN_KEY)||"", requestId });
     closeModal("logisticsDetailModal"); await load();
   }catch(e){ alert("Failed to return request to pending: " + (e.message||e)); }
 }
@@ -720,12 +666,7 @@ async function cancelLogisticsRequest(requestId){
   try{
     const existing = state.logisticsRequests.find(x=>x.RequestID===requestId) || {};
     const payload = {...(existing.Payload||{}), CancelNote:note};
-    if(LOGISTICS_API_URL){
-      await logisticsApi("managerUpdate", { pin: localStorage.getItem(ADMIN_PIN_KEY)||"", requestId, updates:{ Status:"CANCELLED", Payload:payload } });
-    } else {
-      await api("cancelLogisticsRequestLocal", { requestId, note });
-    }
-    upsertLocalLogisticsMirror({...existing, Status:"CANCELLED", Payload:payload});
+    await api("cancelLogisticsRequest", { pin: localStorage.getItem(ADMIN_PIN_KEY)||"", requestId, note });
     closeModal("logisticsDetailModal"); await load();
   }catch(e){ alert("Failed to cancel request: " + (e.message||e)); }
 }
@@ -734,17 +675,7 @@ async function deleteLogisticsRequest(requestId){
   if(!confirm("Delete this logistics request permanently from this dashboard? This is stronger than cancelling.")) return;
   if(!confirm("Please confirm again. Deleted requests cannot be restored from the app.")) return;
   try{
-    if(LOGISTICS_API_URL){
-      try {
-        await logisticsApi("managerDeleteRequest", { pin: localStorage.getItem(ADMIN_PIN_KEY)||"", requestId });
-      } catch(_) {
-        const existing = state.logisticsRequests.find(x=>x.RequestID===requestId) || {};
-        await logisticsApi("managerUpdate", { pin: localStorage.getItem(ADMIN_PIN_KEY)||"", requestId, updates:{ Status:"CANCELLED", Payload:{...(existing.Payload||{}), DeletedAt:nowISO(), DeleteNote:"Deleted from Production Dashboard"} } });
-      }
-    } else {
-      await api("deleteLogisticsRequestLocal", { requestId });
-    }
-    removeLocalLogisticsMirror(requestId);
+    await api("deleteLogisticsRequest", { pin: localStorage.getItem(ADMIN_PIN_KEY)||"", requestId });
     closeModal("logisticsDetailModal"); await load();
   }catch(e){ alert("Failed to delete request: " + (e.message||e)); }
 }
@@ -794,14 +725,8 @@ async function submitLogisticsRequest(){
   if(type==="Client Call" && (!payload.ClientName || !payload.Destination)) return alert("For Client Call, client and destination are required.");
   if(type==="Service" && (!payload.Destination || !payload.Purpose || !payload.RequiredVehicle)) return alert("For Service, destination, purpose, and required vehicle are required.");
   try{
-    let res;
-    if(LOGISTICS_API_URL) res = await logisticsApi("createRequest", request);
-    else res = await api("submitLogisticsRequestLocal", {request});
-    const saved = {...request, RequestID: res.requestId || res.RequestID || request.RequestID || `REQ-LOCAL-${Date.now()}`, CancelCode: res.cancelCode || ""};
-    upsertLocalLogisticsMirror(saved);
-    state.logisticsRequests = mergeLogisticsLists(state.logisticsRequests, [saved]);
+    const res = await api("submitLogisticsRequest", { request });
     closeModal("logisticsRequestModal");
-    render();
     await load({silent:true});
     alert("Logistics request submitted as PENDING.");
   }catch(e){ alert("Failed to submit logistics request: "+(e.message||e)); }
@@ -861,7 +786,7 @@ function renderSettings(){
     <div class="panel"><h3>Current App Settings</h3>${Object.entries(state.settings||{}).map(([k,v])=>detail(k,v)).join("")}</div>
   </div>`;
 }
-function renderAbout(){ $("page-about").innerHTML = `<div class="pageTitle"><div><h1>About</h1><div class="hint">System information and credits.</div></div></div><div class="panel aboutBox"><h2>SJTC Production Department Dashboard</h2><p>A production and logistics coordination system for monitoring projects, tracking item-level production progress, managing partial delivery batches, and coordinating logistics requests.</p><p><b>Version:</b> 1.1.5<br><b>Company:</b> SJTC Manufacturing Inc. / Focolare Carpentry</p><p><b>Developed by:</b> Engr. CK Empeynado</p><p class="small">This system uses GitHub Pages for the frontend, Cloudflare Worker as proxy, Google Apps Script as API, and Google Sheets as database. It is intended for internal production monitoring and logistics coordination.</p></div>`; }
+function renderAbout(){ $("page-about").innerHTML = `<div class="pageTitle"><div><h1>About</h1><div class="hint">System information and credits.</div></div></div><div class="panel aboutBox"><h2>SJTC Production Department Dashboard</h2><p>A production and logistics coordination system for monitoring projects, tracking item-level production progress, managing partial delivery batches, and coordinating logistics requests.</p><p><b>Version:</b> 1.2<br><b>Company:</b> SJTC Manufacturing Inc. / Focolare Carpentry</p><p><b>Developed by:</b> Engr. CK Empeynado</p><p class="small">This system uses GitHub Pages for the frontend, Cloudflare Worker as proxy, Google Apps Script as API, and Google Sheets as database. It is intended for internal production monitoring and logistics coordination.</p></div>`; }
 function openModal(id){ $(id).style.display="flex"; bindCloseButtons(); applyFieldTips(); }
 function closeModal(id){ $(id).style.display="none"; }
 function bindCloseButtons(){ document.querySelectorAll("[data-close]").forEach(b=>b.onclick=()=>closeModal(b.dataset.close)); }
