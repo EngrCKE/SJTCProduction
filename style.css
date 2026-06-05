@@ -24,3 +24,10 @@ table{width:100%;border-collapse:collapse}th,td{border-bottom:1px solid rgba(255
 .detailGrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 @media(max-width:780px){.detailGrid{grid-template-columns:1fr}}
 .requestDetailBox{border:1px solid rgba(255,255,255,.10);border-radius:14px;padding:10px;background:rgba(255,255,255,.04)}
+
+
+.loadingOverlay{position:fixed;inset:0;z-index:200;background:rgba(3,12,8,.48);backdrop-filter:blur(3px);align-items:center;justify-content:center;padding:20px}
+.loadingCard{display:flex;align-items:center;gap:12px;background:rgba(22,59,44,.96);border:1px solid rgba(255,255,255,.16);border-radius:18px;padding:16px 18px;box-shadow:0 18px 60px rgba(0,0,0,.35)}
+.spinner{width:26px;height:26px;border-radius:999px;border:3px solid rgba(255,255,255,.18);border-top-color:var(--ok);animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
+body.actionBusy{cursor:progress}body.actionBusy button{pointer-events:none}
+.tipLabel{display:inline-flex;align-items:center;gap:5px;position:relative;cursor:help}.tipLabel::after{content:"?";display:inline-grid;place-items:center;width:16px;height:16px;border-radius:999px;border:1px solid rgba(255,255,255,.25);font-size:10px;color:var(--muted)}.tipLabel:hover::before{content:attr(data-tip);position:absolute;left:0;top:calc(100% + 7px);z-index:220;width:260px;background:#f3e9d7;color:#1b2a22;border:1px solid #d7c8ad;border-radius:12px;padding:9px 10px;box-shadow:0 12px 28px rgba(0,0,0,.28);font-size:12px;line-height:1.35}.tipLabel:hover::after{background:rgba(63,174,115,.20);color:#d6ffe9}.gpSlip{border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:10px;background:rgba(255,255,255,.04)}
