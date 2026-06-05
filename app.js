@@ -1,5 +1,5 @@
 /***********************
- * SJTC Production Department Dashboard v1.1.5
+ * SJTC Production Department Dashboard v1.1.6
  * Frontend for GitHub Pages
  * Set PRODUCTION_API_URL to your Cloudflare Worker URL after deployment.
  ***********************/
@@ -29,6 +29,9 @@ const cleanSO = v => String(v || "").trim().replace(/^SO[-\s]*/i, "");
 
 let autoRefreshTimer = null;
 let isAutoRefreshing = false;
+let actionBusy = false;
+const LOCAL_LOGISTICS_KEY = "sjtc_local_logistics_submitted_v116";
+
 
 let state = {
   admin: false,
@@ -52,7 +55,7 @@ const demo = (() => {
     { PersonnelID:"PER-0005", PersonnelName:"Mang Tony", Role:"Driver", Active:"Y" }
   ];
   return {
-    settings: { ADMIN_PIN: DEMO_PIN, APP_NAME: "SJTC Production Department Dashboard", VERSION: "1.1.5", PROCESS_COLUMNS: DEFAULT_PROCESS_COLUMNS.join("|") },
+    settings: { ADMIN_PIN: DEMO_PIN, APP_NAME: "SJTC Production Department Dashboard", VERSION: "1.1.6", PROCESS_COLUMNS: DEFAULT_PROCESS_COLUMNS.join("|") },
     personnel,
     drivers: [{ DriverID:"DRV-0001", PersonnelID:"PER-0005", DriverName:"Mang Tony", DriverPhone:"0917 555 1111", Active:"Y" }],
     vehicles: [{ VehicleID:"VEH-0001", VehicleCode:"TRUCK-1", VehicleLabel:"Truck 1", PlateNo:"ABC 1234", PlateEnding:"4", Active:"Y" }],
@@ -179,9 +182,131 @@ function demoApi(action, body){
   return ok({});
 }
 
+
+function getLocalLogisticsMirror(){
+  try { return JSON.parse(localStorage.getItem(LOCAL_LOGISTICS_KEY) || "[]"); }
+  catch(_) { return []; }
+}
+function saveLocalLogisticsMirror(list){
+  localStorage.setItem(LOCAL_LOGISTICS_KEY, JSON.stringify((list || []).slice(0,250)));
+}
+function upsertLocalLogisticsMirror(request){
+  if(!request || !request.RequestID) return;
+  const list = getLocalLogisticsMirror();
+  const idx = list.findIndex(x => String(x.RequestID) === String(request.RequestID));
+  if(idx >= 0) list[idx] = {...list[idx], ...request, Payload:{...(list[idx].Payload||{}), ...(request.Payload||{})}};
+  else list.unshift(request);
+  saveLocalLogisticsMirror(list);
+}
+function removeLocalLogisticsMirror(requestId){
+  saveLocalLogisticsMirror(getLocalLogisticsMirror().filter(x => String(x.RequestID) !== String(requestId)));
+}
+function mergeLogisticsLists(base, incoming){
+  const map = new Map();
+  (base || []).forEach(r => { if(r && r.RequestID) map.set(String(r.RequestID), r); });
+  (incoming || []).forEach(r => { if(r && r.RequestID) map.set(String(r.RequestID), {...(map.get(String(r.RequestID))||{}), ...r, Payload:{...((map.get(String(r.RequestID))||{}).Payload||{}), ...(r.Payload||{})}}); });
+  return Array.from(map.values()).sort((a,b)=> new Date(a.StartDT||a.CreatedAt||0) - new Date(b.StartDT||b.CreatedAt||0));
+}
+function logisticsWindowStartISO(){
+  const d = currentWeekDates()[0];
+  return d.toISOString();
+}
+async function loadExternalLogisticsRequests(silent){
+  if(!LOGISTICS_API_URL) return;
+  let external = [];
+  const pin = localStorage.getItem(ADMIN_PIN_KEY) || "";
+  if(state.admin && pin){
+    try{
+      const data = await logisticsApi("managerListRequests", { pin, startISO: logisticsWindowStartISO() });
+      external = data.items || [];
+    }catch(err){
+      if(!silent) console.warn("Admin logistics sync failed; falling back to public schedule.", err);
+    }
+  }
+  if(!external.length){
+    try{
+      const data = await logisticsApi("publicSchedule", { startISO: logisticsWindowStartISO() });
+      external = data.items || [];
+    }catch(err){
+      if(!silent) console.warn("Public logistics sync failed.", err);
+    }
+  }
+  state.logisticsRequests = mergeLogisticsLists(getLocalLogisticsMirror(), external);
+  state.logisticsRequests.forEach(r => { if(r.Payload) r.Payload.SONumber = cleanSO(r.Payload.SONumber); });
+}
+function setLoading(on, text="Working..."){
+  const el = $("loadingOverlay");
+  if(!el) return;
+  el.querySelector(".loadingText").textContent = text;
+  el.style.display = on ? "flex" : "none";
+}
+function setActionBusy(on, text="Processing..."){
+  actionBusy = !!on;
+  document.body.classList.toggle("actionBusy", !!on);
+  setLoading(!!on, text);
+  document.querySelectorAll("button").forEach(btn=>{
+    if(on){
+      btn.dataset.wasDisabled = btn.disabled ? "Y" : "N";
+      btn.disabled = true;
+    } else if(btn.dataset.wasDisabled !== "Y") {
+      btn.disabled = false;
+      delete btn.dataset.wasDisabled;
+    }
+  });
+}
+async function runAction(button, text, fn){
+  if(actionBusy) return;
+  const btn = button && button.target ? button.target : button;
+  const oldText = btn && btn.textContent;
+  try{
+    setActionBusy(true, text || "Processing...");
+    if(btn && oldText) btn.textContent = "Please wait...";
+    await fn();
+  } finally {
+    if(btn && oldText) btn.textContent = oldText;
+    setActionBusy(false);
+  }
+}
+const FIELD_TIPS = {
+  adminPinInput:"Enter the admin PIN to unlock editing, scheduling, and process movement controls.",
+  lrType:"Choose whether the request is for delivery, client call, or service/purchasing.",
+  lrRequestedBy:"Enter the name of the staff member submitting this logistics request.",
+  lrDate:"Select the requested schedule date. Logistics admin can still revise this later.",
+  lrTime:"Select the requested dispatch or call time.",
+  lrSO:"Enter the SO number only. Do not type SO-.",
+  lrClient:"Enter the client name connected to this request.",
+  lrContact:"Enter the client or site contact number.",
+  lrAddress:"Enter the exact delivery or installation address.",
+  lrDestination:"Enter the destination for the service or client call.",
+  lrArea:"Choose NCR if coding rules may apply. Choose Non-NCR for outside NCR trips.",
+  lrItems:"List only the items included in this delivery request, especially for partial delivery.",
+  lrNotes:"Add special instructions such as delivery restrictions, contact person, or priority notes.",
+  lrPurpose:"Choose the main purpose of the service request.",
+  lrVehicleReq:"Choose the preferred vehicle type if the request requires a specific capacity.",
+  schedDate:"Final scheduled date for this logistics request.",
+  schedTime:"Final scheduled dispatch/start time.",
+  schedDriver:"Select the assigned driver.",
+  schedVehicle:"Select the assigned vehicle.",
+  schedRemarks:"Add schedule remarks, instructions, or correction notes.",
+  noteSignature:"Enter your name or short signature for accountability.",
+  noteText:"Write the production update, issue, or instruction. The date/time is saved automatically."
+};
+function applyFieldTips(root=document){
+  Object.entries(FIELD_TIPS).forEach(([id,tip])=>{
+    const el = root.getElementById ? root.getElementById(id) : document.getElementById(id);
+    if(!el) return;
+    el.title = tip;
+    el.dataset.tip = tip;
+    const wrap = el.closest("div");
+    const label = wrap ? wrap.querySelector("label") : null;
+    if(label){ label.classList.add("tipLabel"); label.dataset.tip = tip; label.title = tip; }
+  });
+}
+
 async function load(options = {}){
   const silent = !!options.silent;
   setSync(silent ? "Auto-syncing..." : "Syncing...");
+  if(!silent) setLoading(true, "Syncing data...");
   try{
     const data = await api("productionBootstrap", { pin: localStorage.getItem(ADMIN_PIN_KEY) || "" });
     PROCESS_COLUMNS = data.processColumns || (data.settings?.PROCESS_COLUMNS ? String(data.settings.PROCESS_COLUMNS).split("|") : DEFAULT_PROCESS_COLUMNS);
@@ -191,12 +316,15 @@ async function load(options = {}){
       teams:data.teams||[], teamMembers:data.teamMembers||[], personnel:data.personnel||[], drivers:data.drivers||[], vehicles:data.vehicles||[], vehiclePassengers:data.vehiclePassengers||[], settings:data.settings||{}
     });
     state.projects.forEach(p=>p.SONumber=cleanSO(p.SONumber)); state.items.forEach(i=>i.SONumber=cleanSO(i.SONumber));
+    await loadExternalLogisticsRequests(silent);
     setSync(PRODUCTION_API_URL ? `Synced ${new Date().toLocaleTimeString(undefined,{hour:"2-digit",minute:"2-digit"})}` : "Demo mode");
     render();
   }catch(err){
     console.error(err);
     setSync("Sync failed");
     if(!silent) alert(err.message || err);
+  } finally {
+    if(!silent) setLoading(false);
   }
 }
 function setSync(text){ $("syncBadge").textContent = text; }
@@ -204,7 +332,7 @@ function isAnyModalOpen(){
   return Array.from(document.querySelectorAll(".modalBg")).some(m => m.style.display === "flex");
 }
 function shouldSkipAutoRefresh(){
-  return isAutoRefreshing || isAnyModalOpen() || state.pendingMove || state.editingProjectId;
+  return actionBusy || isAutoRefreshing || isAnyModalOpen() || state.pendingMove || state.editingProjectId;
 }
 async function autoRefresh(){
   if(shouldSkipAutoRefresh()) return;
@@ -243,6 +371,7 @@ function render(){
   $(`page-${state.page}`).classList.add("active");
   document.querySelectorAll(".navBtn").forEach(t=>t.classList.toggle("active", t.dataset.page===state.page));
   renderOverview(); renderProjects(); renderBoard(); renderLogistics(); renderSettings(); renderAbout();
+  applyFieldTips();
 }
 
 function renderOverview(){
@@ -439,7 +568,7 @@ function renderLogistics(){
     <div class="pageTitle"><div><h1>Logistics</h1><div class="hint">Integrated logistics module. Staff can submit and view requests. Admin can schedule or reschedule by drag/drop.</div></div><button class="primary" id="btnSubmitLogisticsTop">+ Submit Logistics Request</button></div>
     <div class="split"><div class="panel"><h3>Pending Requests</h3><div class="hint">${state.admin ? "Drag pending cards into a calendar day to schedule. Click any card to view details." : "Read-only: pending requests awaiting approval/scheduling. Click any card to view details."}</div><div class="pendingList" style="margin-top:10px">${pending.map(pendingLogisticsCard).join("") || `<div class="hint">No pending requests.</div>`}</div></div>
       <div class="panel"><div class="line" style="justify-content:space-between"><h3>1-Week Rolling Calendar</h3><div class="line"><button id="logPrev">← Previous Week</button><button class="primary" id="logCurrent">Current Week</button><button id="logNext">Next Week →</button></div></div><div class="hint">${state.admin ? "Drag scheduled cards to a different day to reschedule." : "Read-only weekly logistics calendar."}</div><div class="calendarGrid">${dates.map(d=>logisticsDayBox(d,scheduled)).join("")}</div></div></div>
-    <div class="panel" style="margin-top:12px"><div class="line" style="justify-content:space-between"><h3>Dispatch & Gate Pass</h3><div class="line"><button class="primary" id="btnDispatchPlaceholder">Open Dispatch View</button><button class="ok" id="btnGatePassPlaceholder">Generate Gate Pass</button></div></div><div class="hint">Gate pass generation and full dispatch view are kept from the existing logistics admin app and reserved for integration into this super app.</div></div>
+    <div class="panel" style="margin-top:12px"><div class="line" style="justify-content:space-between"><div><h3>Dispatch & Gate Pass</h3><div class="hint">View confirmed dispatches for the selected week and print gate passes.</div></div><div class="line"><button class="primary" id="btnOpenDispatchView">Open Dispatch View</button><button class="ok" id="btnPrintGatePasses">Generate Gate Pass</button></div></div></div>
     <div class="panel" style="margin-top:12px">
       <div class="line" style="justify-content:space-between;align-items:flex-start">
         <div><h3>Items for Delivery</h3><div class="hint">Click an item to open the same Project Details popup used in the Projects tab.</div></div>
@@ -454,6 +583,8 @@ function renderLogistics(){
   bindLogisticsDnD();
   bindLogisticsDetailOpeners();
   bindDeliveryItemProjectOpeners();
+  if($("btnOpenDispatchView")) $("btnOpenDispatchView").onclick=(e)=>runAction(e,"Preparing dispatch view...", async()=>openDispatchView());
+  if($("btnPrintGatePasses")) $("btnPrintGatePasses").onclick=(e)=>runAction(e,"Preparing gate passes...", async()=>printGatePassesForCurrentWeek());
 }
 function itemsForDeliveryList(){
   const readyStatuses = ["Delivery", "Quality Control"];
@@ -558,18 +689,26 @@ async function confirmSchedule(){
   const start=new Date(`${$("schedDate").value}T${$("schedTime").value}:00`); const end=new Date(start.getTime()+4*3600000);
   const passengerNames=selectedPassengerNames();
   const passengerIds=selectedPassengerIds();
-  await api("scheduleLogisticsRequestLocal",{requestId:r.RequestID, updates:{StartDT:start.toISOString(),EndDT:end.toISOString(),DriverCode:$("schedDriver").value.trim(),VehicleCode:$("schedVehicle").value.trim(),Payload:{...(r.Payload||{}),Passengers:passengerNames,PassengerIDs:passengerIds,Installers:passengerNames,Notes:$("schedRemarks").value.trim()}}});
+  const updates={Status:"CONFIRMED",StartDT:start.toISOString(),EndDT:end.toISOString(),DriverCode:$("schedDriver").value.trim(),VehicleCode:$("schedVehicle").value.trim(),Payload:{...(r.Payload||{}),Passengers:passengerNames,PassengerIDs:passengerIds,Installers:passengerNames,Notes:$("schedRemarks").value.trim()}};
+  if(LOGISTICS_API_URL && state.admin){
+    await logisticsApi("managerUpdate", { pin: localStorage.getItem(ADMIN_PIN_KEY)||"", requestId:r.RequestID, updates });
+  } else {
+    await api("scheduleLogisticsRequestLocal",{requestId:r.RequestID, updates});
+  }
+  upsertLocalLogisticsMirror({...r, ...updates});
   closeModal("logisticsScheduleModal"); await load();
 }
 async function returnLogisticsRequestToPending(requestId){
   if(!state.admin) return alert("Admin mode is required.");
   if(!confirm("Return this logistics request to PENDING? Driver, vehicle, and passenger assignments will be cleared.")) return;
   try{
-    if(LOGISTICS_API_URL && PRODUCTION_API_URL){
+    if(LOGISTICS_API_URL){
       await logisticsApi("managerUpdate", { pin: localStorage.getItem(ADMIN_PIN_KEY)||"", requestId, updates:{ Status:"PENDING", DriverCode:"", VehicleCode:"", TripStatus:"READY" } });
     } else {
       await api("returnLogisticsRequestPendingLocal", { requestId });
     }
+    const existing = state.logisticsRequests.find(x=>x.RequestID===requestId) || {};
+    upsertLocalLogisticsMirror({...existing, Status:"PENDING", DriverCode:"", VehicleCode:"", TripStatus:"READY"});
     closeModal("logisticsDetailModal"); await load();
   }catch(e){ alert("Failed to return request to pending: " + (e.message||e)); }
 }
@@ -579,11 +718,14 @@ async function cancelLogisticsRequest(requestId){
   if(note === null) return;
   if(!confirm("Cancel this logistics request?")) return;
   try{
-    if(LOGISTICS_API_URL && PRODUCTION_API_URL){
-      await logisticsApi("managerUpdate", { pin: localStorage.getItem(ADMIN_PIN_KEY)||"", requestId, updates:{ Status:"CANCELLED", Payload:{...(state.logisticsRequests.find(x=>x.RequestID===requestId)?.Payload||{}), CancelNote:note} } });
+    const existing = state.logisticsRequests.find(x=>x.RequestID===requestId) || {};
+    const payload = {...(existing.Payload||{}), CancelNote:note};
+    if(LOGISTICS_API_URL){
+      await logisticsApi("managerUpdate", { pin: localStorage.getItem(ADMIN_PIN_KEY)||"", requestId, updates:{ Status:"CANCELLED", Payload:payload } });
     } else {
       await api("cancelLogisticsRequestLocal", { requestId, note });
     }
+    upsertLocalLogisticsMirror({...existing, Status:"CANCELLED", Payload:payload});
     closeModal("logisticsDetailModal"); await load();
   }catch(e){ alert("Failed to cancel request: " + (e.message||e)); }
 }
@@ -592,13 +734,19 @@ async function deleteLogisticsRequest(requestId){
   if(!confirm("Delete this logistics request permanently from this dashboard? This is stronger than cancelling.")) return;
   if(!confirm("Please confirm again. Deleted requests cannot be restored from the app.")) return;
   try{
-    if(LOGISTICS_API_URL && PRODUCTION_API_URL){
-      await logisticsApi("managerDeleteRequest", { pin: localStorage.getItem(ADMIN_PIN_KEY)||"", requestId });
+    if(LOGISTICS_API_URL){
+      try {
+        await logisticsApi("managerDeleteRequest", { pin: localStorage.getItem(ADMIN_PIN_KEY)||"", requestId });
+      } catch(_) {
+        const existing = state.logisticsRequests.find(x=>x.RequestID===requestId) || {};
+        await logisticsApi("managerUpdate", { pin: localStorage.getItem(ADMIN_PIN_KEY)||"", requestId, updates:{ Status:"CANCELLED", Payload:{...(existing.Payload||{}), DeletedAt:nowISO(), DeleteNote:"Deleted from Production Dashboard"} } });
+      }
     } else {
       await api("deleteLogisticsRequestLocal", { requestId });
     }
+    removeLocalLogisticsMirror(requestId);
     closeModal("logisticsDetailModal"); await load();
-  }catch(e){ alert("Failed to delete request. If using the existing logistics API, add a managerDeleteRequest action to its Apps Script first. Details: " + (e.message||e)); }
+  }catch(e){ alert("Failed to delete request: " + (e.message||e)); }
 }
 function openLogisticsDetailModal(requestId){
   const r=state.logisticsRequests.find(x=>x.RequestID===requestId); if(!r) return;
@@ -640,12 +788,65 @@ async function submitLogisticsRequest(){
   if(type==="Delivery") payload={ SONumber:cleanSO(val("lrSO")), ClientName:val("lrClient"), ContactNumber:val("lrContact"), Address:val("lrAddress"), Items:val("lrItems"), Notes:val("lrNotes"), AreaClass:val("lrArea")||"NON_NCR" };
   else if(type==="Client Call") payload={ ClientName:val("lrClient"), Destination:val("lrDestination"), Notes:val("lrNotes"), AreaClass:val("lrArea")||"NON_NCR" };
   else payload={ ClientName:val("lrClient"), Destination:val("lrDestination"), Purpose:val("lrPurpose"), RequiredVehicle:val("lrVehicleReq"), Notes:val("lrNotes"), AreaClass:val("lrArea")||"NON_NCR" };
-  const request={ Type:type, Status:"PENDING", RequestedBy:val("lrRequestedBy"), ViberUserID:"PRODUCTION-DASHBOARD", StartDT:start.toISOString(), EndDT:end.toISOString(), Payload:payload };
+  const request={ Type:type, Status:"PENDING", RequestedBy:val("lrRequestedBy"), ViberUserID:"PRODUCTION-DASHBOARD", StartDT:start.toISOString(), EndDT:end.toISOString(), Payload:payload, TripStatus:"READY", DriverCode:"", VehicleCode:"" };
   if(!request.RequestedBy || !date || !time) return alert("Requestor, date, and time are required.");
   if(type==="Delivery" && (!payload.SONumber || !payload.ClientName || !payload.Address || !payload.Items)) return alert("For Delivery, SO#, client, address, and items are required.");
   if(type==="Client Call" && (!payload.ClientName || !payload.Destination)) return alert("For Client Call, client and destination are required.");
   if(type==="Service" && (!payload.Destination || !payload.Purpose || !payload.RequiredVehicle)) return alert("For Service, destination, purpose, and required vehicle are required.");
-  try{ if(LOGISTICS_API_URL && PRODUCTION_API_URL) await logisticsApi("createRequest", request); else await api("submitLogisticsRequestLocal", {request}); alert("Logistics request submitted as PENDING."); closeModal("logisticsRequestModal"); await load(); }catch(e){ alert("Failed to submit logistics request: "+(e.message||e)); }
+  try{
+    let res;
+    if(LOGISTICS_API_URL) res = await logisticsApi("createRequest", request);
+    else res = await api("submitLogisticsRequestLocal", {request});
+    const saved = {...request, RequestID: res.requestId || res.RequestID || request.RequestID || `REQ-LOCAL-${Date.now()}`, CancelCode: res.cancelCode || ""};
+    upsertLocalLogisticsMirror(saved);
+    state.logisticsRequests = mergeLogisticsLists(state.logisticsRequests, [saved]);
+    closeModal("logisticsRequestModal");
+    render();
+    await load({silent:true});
+    alert("Logistics request submitted as PENDING.");
+  }catch(e){ alert("Failed to submit logistics request: "+(e.message||e)); }
+}
+
+
+function currentWeekConfirmedRequests(){
+  const dates=currentWeekDates();
+  const start=dates[0]; const end=new Date(dates[6]); end.setDate(end.getDate()+1);
+  return state.logisticsRequests.filter(r=>String(r.Status||"").toUpperCase()==="CONFIRMED" && r.StartDT && new Date(r.StartDT)>=start && new Date(r.StartDT)<end).sort((a,b)=>new Date(a.StartDT)-new Date(b.StartDT));
+}
+function openDispatchView(){
+  const confirmed=currentWeekConfirmedRequests();
+  const groups={};
+  confirmed.forEach(r=>{
+    const k=`${ymd(new Date(r.StartDT))}||${r.DriverCode||"Unassigned"}||${r.VehicleCode||"Unassigned"}`;
+    (groups[k] ||= []).push(r);
+  });
+  const html = Object.entries(groups).map(([k,list])=>{
+    const [date,driver,vehicle]=k.split("||");
+    return `<div class="requestDetailBox"><h3>${escapeHtml(new Date(date+"T00:00:00").toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric"}))}</h3><div class="small"><b>Driver:</b> ${escapeHtml(driver)} &nbsp; <b>Vehicle:</b> ${escapeHtml(vehicle)}</div><div style="display:grid;gap:8px;margin-top:8px">${list.map(r=>`<div class="card click" data-open-logreq="${escapeAttr(r.RequestID)}"><div class="cardTitle">${escapeHtml(cleanSO((r.Payload||{}).SONumber)||r.RequestID)} • ${escapeHtml((r.Payload||{}).ClientName||displayType(r.Type))}</div><div class="small">${escapeHtml((r.Payload||{}).Address||(r.Payload||{}).Destination||"")}</div><div class="meta"><span>${niceDT(r.StartDT)}</span><span>${escapeHtml(r.TripStatus||"READY")}</span></div></div>`).join("")}</div></div>`;
+  }).join("") || `<div class="hint">No confirmed dispatches for this week.</div>`;
+  $("logisticsDetailTitle").textContent="Dispatch View";
+  $("logisticsDetailStatus").textContent=`${confirmed.length} confirmed`;
+  $("logisticsDetailBody").innerHTML=html;
+  $("logisticsDetailFooter").innerHTML=`<button data-close="logisticsDetailModal">Close</button><button class="ok" id="btnPrintDispatchGatePasses">Print Gate Passes</button>`;
+  bindCloseButtons();
+  $("btnPrintDispatchGatePasses").onclick=(e)=>runAction(e,"Preparing gate passes...",async()=>printGatePassesForCurrentWeek());
+  bindLogisticsDetailOpeners();
+  openModal("logisticsDetailModal");
+}
+function gatePassSlipHTML(r){
+  const p=r.Payload||{};
+  const passengers=normalizePassengers(p).join(", ") || "—";
+  const date=r.StartDT ? new Date(r.StartDT).toLocaleDateString() : "";
+  const time=r.StartDT ? new Date(r.StartDT).toLocaleTimeString(undefined,{hour:"2-digit",minute:"2-digit"}) : "";
+  return `<section class="gpSlip"><h2>SJTC MANUFACTURING INC.</h2><h3>GATE PASS</h3><p><b>Date:</b> ${escapeHtml(date)} &nbsp; <b>Time:</b> ${escapeHtml(time)}</p><p><b>Vehicle:</b> ${escapeHtml(r.VehicleCode||"")} &nbsp; <b>Driver:</b> ${escapeHtml(r.DriverCode||"")}</p><p><b>SO#:</b> ${escapeHtml(cleanSO(p.SONumber)||"—")} &nbsp; <b>Client:</b> ${escapeHtml(p.ClientName||"—")}</p><p><b>Itinerary:</b> ${escapeHtml(p.Address||p.Destination||"—")}</p><p><b>Items/Purpose:</b> ${escapeHtml(p.Items||p.Purpose||displayType(r.Type)||"—")}</p><p><b>Passengers/Personnel:</b> ${escapeHtml(passengers)}</p><p><b>Remarks:</b> ${escapeHtml(p.Notes||"—")}</p><div class="gpSign"><span>Requested by: ${escapeHtml(r.RequestedBy||"")}</span><span>Approved by: __________________</span></div></section>`;
+}
+function printGatePassesForCurrentWeek(){
+  const list=currentWeekConfirmedRequests();
+  if(!list.length){ alert("No confirmed dispatches for the selected week."); return; }
+  const html=`<!doctype html><html><head><meta charset="utf-8"><title>Gate Passes</title><style>@page{size:Letter;margin:.35in}body{font-family:Arial,sans-serif;color:#111}.sheet{display:grid;grid-template-columns:1fr 1fr;gap:12px}.gpSlip{border:1px solid #333;border-radius:10px;padding:10px;min-height:3.1in;break-inside:avoid}.gpSlip h2,.gpSlip h3{text-align:center;margin:2px 0}.gpSlip h2{font-size:13px}.gpSlip h3{font-size:12px}.gpSlip p{font-size:11px;line-height:1.25;margin:6px 0}.gpSign{display:flex;justify-content:space-between;gap:10px;margin-top:18px;font-size:11px}</style></head><body><div class="sheet">${list.map(gatePassSlipHTML).join("")}</div><script>window.onload=()=>window.print();<\/script></body></html>`;
+  const w=window.open("","_blank");
+  if(!w){ alert("Pop-up blocked. Please allow pop-ups to print gate passes."); return; }
+  w.document.open(); w.document.write(html); w.document.close();
 }
 
 function renderSettings(){
@@ -661,16 +862,21 @@ function renderSettings(){
   </div>`;
 }
 function renderAbout(){ $("page-about").innerHTML = `<div class="pageTitle"><div><h1>About</h1><div class="hint">System information and credits.</div></div></div><div class="panel aboutBox"><h2>SJTC Production Department Dashboard</h2><p>A production and logistics coordination system for monitoring projects, tracking item-level production progress, managing partial delivery batches, and coordinating logistics requests.</p><p><b>Version:</b> 1.1.5<br><b>Company:</b> SJTC Manufacturing Inc. / Focolare Carpentry</p><p><b>Developed by:</b> Engr. CK Empeynado</p><p class="small">This system uses GitHub Pages for the frontend, Cloudflare Worker as proxy, Google Apps Script as API, and Google Sheets as database. It is intended for internal production monitoring and logistics coordination.</p></div>`; }
-function openModal(id){ $(id).style.display="flex"; bindCloseButtons(); }
+function openModal(id){ $(id).style.display="flex"; bindCloseButtons(); applyFieldTips(); }
 function closeModal(id){ $(id).style.display="none"; }
 function bindCloseButtons(){ document.querySelectorAll("[data-close]").forEach(b=>b.onclick=()=>closeModal(b.dataset.close)); }
 function bindGlobal(){
   document.querySelectorAll(".navBtn").forEach(t=>t.onclick=()=>{ state.page=t.dataset.page; render(); });
   $("btnSidebarToggle").onclick=()=>{ state.sidebarCollapsed=!state.sidebarCollapsed; localStorage.setItem("sjtc_sidebar_collapsed", state.sidebarCollapsed?"Y":"N"); syncShell(); };
   $("btnAdmin").onclick=()=>openModal("adminModal");
-  $("btnAdminLogin").onclick=async()=>{ const pin=$("adminPinInput").value.trim(); const res=await api("validateAdmin",{pin}); if(!res.valid) return alert("Invalid PIN"); localStorage.setItem(ADMIN_PIN_KEY,pin); closeModal("adminModal"); setAdmin(true); };
+  $("btnAdminLogin").onclick=(e)=>runAction(e,"Unlocking admin mode...", async()=>{ const pin=$("adminPinInput").value.trim(); const res=await api("validateAdmin",{pin}); if(!res.valid) return alert("Invalid PIN"); localStorage.setItem(ADMIN_PIN_KEY,pin); closeModal("adminModal"); setAdmin(true); await load({silent:true}); });
   $("btnAdminOff").onclick=()=>{ localStorage.removeItem(ADMIN_PIN_KEY); closeModal("adminModal"); setAdmin(false); };
-  $("btnRefresh").onclick=()=>load(); $("btnSaveProject").onclick=saveProject; $("btnSaveProjectItems").onclick=saveProjectItems; $("btnConfirmMove").onclick=confirmMove; $("btnSubmitLogisticsRequest").onclick=submitLogisticsRequest; $("btnConfirmScheduleRequest").onclick=confirmSchedule;
-  document.querySelectorAll(".modalBg").forEach(bg=>bg.addEventListener("click",e=>{ if(e.target===bg) bg.style.display="none"; }));
+  $("btnRefresh").onclick=(e)=>runAction(e,"Refreshing data...", async()=>load());
+  $("btnSaveProject").onclick=(e)=>runAction(e,"Saving project...", saveProject);
+  $("btnSaveProjectItems").onclick=(e)=>runAction(e,"Saving items...", saveProjectItems);
+  $("btnConfirmMove").onclick=(e)=>runAction(e,"Saving movement log...", confirmMove);
+  $("btnSubmitLogisticsRequest").onclick=(e)=>runAction(e,"Submitting logistics request...", submitLogisticsRequest);
+  $("btnConfirmScheduleRequest").onclick=(e)=>runAction(e,"Saving logistics schedule...", confirmSchedule);
+  document.querySelectorAll(".modalBg").forEach(bg=>bg.addEventListener("click",e=>{ if(e.target===bg && !actionBusy) bg.style.display="none"; }));
 }
 bindGlobal(); load().then(startAutoRefresh);
