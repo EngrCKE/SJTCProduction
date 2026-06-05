@@ -886,15 +886,55 @@ function editVehiclePassenger(id=""){
     {key:"Active",label:"Active",type:"select",options:["Y","N"]}
   ], Object.assign({Active:"Y"},vp), async(data)=>api("upsertVehiclePassenger",{pin:localStorage.getItem(ADMIN_PIN_KEY)||"", vehiclePassenger:Object.assign({},vp,data)}));
 }
+function settingTile(title, body, actionHtml="", extra=""){
+  return `<div class="settingsTile ${extra}"><div class="cardTitle">${title}</div><div class="tileBody">${body}</div>${actionHtml?`<div class="tileActions">${actionHtml}</div>`:""}</div>`;
+}
 function renderSettings(){
   const processBody = `<div class="pillWrap">${PROCESS_COLUMNS.map(x=>`<span class="pill info">${escapeHtml(x)}</span>`).join("")}</div>${state.admin?`<div class="sectionActions"><button class="primary" onclick="editSetting('PROCESS_COLUMNS','Production Process Columns','Separate each process with a vertical bar |. These become the Kanban columns.')">Edit Processes</button></div>`:""}`;
-  const teamBody = state.teams.map(t=>`<div class="card"><div class="cardTitle">${escapeHtml(t.TeamName)}</div><div class="small">Lead: ${escapeHtml(t.TeamLead || "—")}</div><div class="small">Members: ${escapeHtml(state.teamMembers.filter(m=>m.TeamID===t.TeamID&&m.Active!=="N").map(m=>`${m.MemberName}${m.Role?" — "+m.Role:""}`).join(", ")||"—")}</div></div>`).join("") || `<div class="hint">No teams yet.</div>`;
-  const personnelBody = `${state.admin?`<div class="sectionActions"><button class="primary" onclick="editPersonnel('')">+ Add Personnel</button></div>`:""}` + (state.personnel.map(p=>`<div class="card compactRow"><div><div class="cardTitle">${escapeHtml(personName(p) || p.PersonnelID)}</div><div class="small">${escapeHtml(personRole(p))}${p.Department?" • "+escapeHtml(p.Department):""}${p.ContactNumber?" • "+escapeHtml(p.ContactNumber):""}</div><div class="meta"><span>Can Drive: ${escapeHtml(yesNo(p.CanDrive))}</span><span>Can Install: ${escapeHtml(yesNo(p.CanInstall))}</span></div></div>${state.admin?`<button onclick="editPersonnel('${escapeAttr(p.PersonnelID)}')">Edit</button>`:""}</div>`).join("") || `<div class="hint">No personnel records yet.</div>`);
-  const driversBody = `<div class="hint">Driver choices are based on Personnel records with <b>Can Drive = Y</b> or role containing “Driver”. A separate driver list is only needed later for license/expiry details.</div>` + (driverPeople().map(p=>`<div class="card"><div class="cardTitle">${escapeHtml(personName(p))}</div><div class="small">${escapeHtml(personRole(p))}${p.ContactNumber?" • "+escapeHtml(p.ContactNumber):""}</div></div>`).join("") || `<div class="hint">No driver-capable personnel yet.</div>`);
-  const vehicleBody = `${state.admin?`<div class="sectionActions"><button class="primary" onclick="editVehicle('')">+ Add Vehicle</button></div>`:""}` + (state.vehicles.map(v=>`<div class="card compactRow"><div><div class="cardTitle">${escapeHtml(v.VehicleCode||v.VehicleID)}</div><div class="small">${escapeHtml(v.VehicleLabel||"")} • Plate: ${escapeHtml(v.PlateNo||"—")} • Ending: ${escapeHtml(v.PlateEnding||"—")}</div></div>${state.admin?`<button onclick="editVehicle('${escapeAttr(v.VehicleID)}')">Edit</button>`:""}</div>`).join("") || `<div class="hint">No vehicles yet.</div>`);
-  const passengerBody = `${state.admin?`<div class="sectionActions"><button class="primary" onclick="editVehiclePassenger('')">+ Add Default Passenger</button></div>`:""}` + (state.vehiclePassengers.map(vp=>{ const p=state.personnel.find(x=>x.PersonnelID===vp.PersonnelID)||{}; const v=state.vehicles.find(x=>x.VehicleID===vp.VehicleID)||{}; return `<div class="card compactRow"><div><div class="cardTitle">${escapeHtml(personnelLabel(p) || vp.PassengerName || vp.PersonnelID)}</div><div class="small">Vehicle: ${escapeHtml(v.VehicleCode || vp.VehicleID || "—")}</div></div>${state.admin?`<button onclick="editVehiclePassenger('${escapeAttr(vp.PassengerID)}')">Edit</button>`:""}</div>`; }).join("") || `<div class="hint">No passenger defaults yet.</div>`);
-  const settingsBody = Object.entries(state.settings||{}).map(([k,v])=>`<div class="card compactRow"><div>${detail(k,v)}</div>${state.admin?`<button onclick="editSetting('${escapeAttr(k)}','${escapeAttr(k)}','Update this app parameter without opening Google Sheets.')">Edit</button>`:""}</div>`).join("") || `<div class="hint">No settings yet.</div>`;
-  $("page-settings").innerHTML = `<div class="pageTitle"><div><h1>Settings</h1><div class="hint">Admin-maintained parameters and lists. Sections are collapsible for a cleaner view.</div></div></div>
+
+  const teamBody = state.teams.length
+    ? `<div class="settingsGrid">${state.teams.map(t=>settingTile(
+        escapeHtml(t.TeamName || "Unnamed Team"),
+        `<div class="small"><b>Lead:</b> ${escapeHtml(t.TeamLead || "—")}</div><div class="small"><b>Members:</b> ${escapeHtml(state.teamMembers.filter(m=>m.TeamID===t.TeamID&&m.Active!=="N").map(m=>`${m.MemberName}${m.Role?" — "+m.Role:""}`).join(", ")||"—")}</div>`
+      )).join("")}</div>`
+    : `<div class="hint">No teams yet.</div>`;
+
+  const personnelBody = `${state.admin?`<div class="sectionActions"><button class="primary" onclick="editPersonnel('')">+ Add Personnel</button></div>`:""}` +
+    (state.personnel.length ? `<div class="settingsGrid">${state.personnel.map(p=>settingTile(
+      escapeHtml(personName(p) || p.PersonnelID || "Personnel"),
+      `<div class="small"><b>Role:</b> ${escapeHtml(personRole(p) || "—")}</div><div class="small"><b>Department:</b> ${escapeHtml(p.Department || "—")}</div>${p.ContactNumber?`<div class="small"><b>Contact:</b> ${escapeHtml(p.ContactNumber)}</div>`:""}<div class="meta"><span>Can Drive: ${escapeHtml(yesNo(p.CanDrive))}</span><span>Can Install: ${escapeHtml(yesNo(p.CanInstall))}</span></div>`,
+      state.admin?`<button onclick="editPersonnel('${escapeAttr(p.PersonnelID)}')">Edit</button>`:""
+    )).join("")}</div>` : `<div class="hint">No personnel records yet.</div>`);
+
+  const driversBody = `<div class="hint" style="margin-bottom:8px">Driver choices are based on Personnel records with <b>Can Drive = Y</b> or role containing “Driver”.</div>` +
+    (driverPeople().length ? `<div class="settingsGrid">${driverPeople().map(p=>settingTile(
+      escapeHtml(personName(p) || p.PersonnelID || "Driver"),
+      `<div class="small"><b>Role:</b> ${escapeHtml(personRole(p) || "—")}</div>${p.ContactNumber?`<div class="small"><b>Contact:</b> ${escapeHtml(p.ContactNumber)}</div>`:""}`
+    )).join("")}</div>` : `<div class="hint">No driver-capable personnel yet.</div>`);
+
+  const vehicleBody = `${state.admin?`<div class="sectionActions"><button class="primary" onclick="editVehicle('')">+ Add Vehicle</button></div>`:""}` +
+    (state.vehicles.length ? `<div class="settingsGrid">${state.vehicles.map(v=>settingTile(
+      escapeHtml(v.VehicleCode || v.VehicleID || "Vehicle"),
+      `<div class="small"><b>Label:</b> ${escapeHtml(v.VehicleLabel || "—")}</div><div class="small"><b>Plate:</b> ${escapeHtml(v.PlateNo || "—")}</div><div class="small"><b>Plate Ending:</b> ${escapeHtml(v.PlateEnding || "—")}</div>`,
+      state.admin?`<button onclick="editVehicle('${escapeAttr(v.VehicleID)}')">Edit</button>`:""
+    )).join("")}</div>` : `<div class="hint">No vehicles yet.</div>`);
+
+  const passengerBody = `${state.admin?`<div class="sectionActions"><button class="primary" onclick="editVehiclePassenger('')">+ Add Default Passenger</button></div>`:""}` +
+    (state.vehiclePassengers.length ? `<div class="settingsGrid">${state.vehiclePassengers.map(vp=>{ const p=state.personnel.find(x=>x.PersonnelID===vp.PersonnelID)||{}; const v=state.vehicles.find(x=>x.VehicleID===vp.VehicleID)||{}; return settingTile(
+      escapeHtml(personnelLabel(p) || vp.PassengerName || vp.PersonnelID || "Passenger"),
+      `<div class="small"><b>Vehicle:</b> ${escapeHtml(v.VehicleCode || vp.VehicleID || "—")}</div><div class="small"><b>Role:</b> ${escapeHtml(personRole(p) || "—")}</div>`,
+      state.admin?`<button onclick="editVehiclePassenger('${escapeAttr(vp.PassengerID)}')">Edit</button>`:""
+    ); }).join("")}</div>` : `<div class="hint">No passenger defaults yet.</div>`);
+
+  const settingsBody = Object.entries(state.settings||{}).length
+    ? `<div class="settingsGrid">${Object.entries(state.settings||{}).map(([k,v])=>settingTile(
+        escapeHtml(k),
+        `<div class="small">${escapeHtml(String(v || "—"))}</div>`,
+        state.admin?`<button onclick="editSetting('${escapeAttr(k)}','${escapeAttr(k)}','Update this app parameter without opening Google Sheets.')">Edit</button>`:""
+      )).join("")}</div>`
+    : `<div class="hint">No settings yet.</div>`;
+
+  $("page-settings").innerHTML = `<div class="pageTitle"><div><h1>Settings</h1><div class="hint">Admin-maintained parameters and lists. Open each section to view or edit records.</div></div></div>
     <div class="settingsStack">
       ${collapsible("App Settings", settingsBody, {open:true, count:Object.keys(state.settings||{}).length})}
       ${collapsible("Production Process Columns", processBody, {count:PROCESS_COLUMNS.length})}
