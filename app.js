@@ -1,5 +1,5 @@
 /***********************
- * SJTC Production Department Dashboard v1.2
+ * SJTC Production Department Dashboard v1.2.1
  * Frontend for GitHub Pages
  * Set PRODUCTION_API_URL to your Cloudflare Worker URL after deployment.
  ***********************/
@@ -46,14 +46,16 @@ const demo = (() => {
   const today = new Date();
   const d = n => { const x = new Date(today); x.setDate(x.getDate()+n); return ymd(x); };
   const personnel = [
-    { PersonnelID:"PER-0001", PersonnelName:"Juan D.", Role:"Team Lead", Active:"Y" },
-    { PersonnelID:"PER-0002", PersonnelName:"Mark", Role:"Carpenter", Active:"Y" },
-    { PersonnelID:"PER-0003", PersonnelName:"Allan", Role:"Helper", Active:"Y" },
-    { PersonnelID:"PER-0004", PersonnelName:"Rico", Role:"Painter", Active:"Y" },
-    { PersonnelID:"PER-0005", PersonnelName:"Mang Tony", Role:"Driver", Active:"Y" }
+    { PersonnelID:"PER-0001", PersonnelName:"Juan D.", Role:"Team Lead", Department:"Production", ContactNumber:"", CanDrive:"N", CanInstall:"Y", Active:"Y" },
+    { PersonnelID:"PER-0002", PersonnelName:"Mark", Role:"Carpenter", Department:"Production", ContactNumber:"", CanDrive:"N", CanInstall:"Y", Active:"Y" },
+    { PersonnelID:"PER-0003", PersonnelName:"Allan", Role:"Helper", Department:"Production", ContactNumber:"", CanDrive:"N", CanInstall:"Y", Active:"Y" },
+    { PersonnelID:"PER-0004", PersonnelName:"Rico", Role:"Painter", Department:"Production", ContactNumber:"", CanDrive:"N", CanInstall:"N", Active:"Y" },
+    { PersonnelID:"PER-0005", PersonnelName:"Mang Tony", Role:"Driver", Department:"Logistics", ContactNumber:"0917 555 1111", CanDrive:"Y", CanInstall:"N", Active:"Y" },
+    { PersonnelID:"PER-0006", PersonnelName:"CK Empeynado", Role:"Admin / Production Manager", Department:"Admin", ContactNumber:"", CanDrive:"Y", CanInstall:"N", Active:"Y" },
+    { PersonnelID:"PER-0007", PersonnelName:"Design Staff", Role:"Designer", Department:"Design", ContactNumber:"", CanDrive:"N", CanInstall:"N", Active:"Y" }
   ];
   return {
-    settings: { ADMIN_PIN: DEMO_PIN, APP_NAME: "SJTC Production Department Dashboard", VERSION: "1.1.6", PROCESS_COLUMNS: DEFAULT_PROCESS_COLUMNS.join("|") },
+    settings: { ADMIN_PIN: DEMO_PIN, APP_NAME: "SJTC Production Department Dashboard", VERSION: "1.2.1", PROCESS_COLUMNS: DEFAULT_PROCESS_COLUMNS.join("|") },
     personnel,
     drivers: [{ DriverID:"DRV-0001", PersonnelID:"PER-0005", DriverName:"Mang Tony", DriverPhone:"0917 555 1111", Active:"Y" }],
     vehicles: [{ VehicleID:"VEH-0001", VehicleCode:"TRUCK-1", VehicleLabel:"Truck 1", PlateNo:"ABC 1234", PlateEnding:"4", Active:"Y" }],
@@ -94,6 +96,41 @@ async function api(action, payload){
 }
 function demoApi(action, body){
   const ok = data => Promise.resolve({ok:true, ...data});
+  if(action === "upsertSetting"){
+    demo.settings[body.key] = String(body.value ?? "");
+    if(body.key === "PROCESS_COLUMNS") PROCESS_COLUMNS = String(body.value || "").split("|").map(x=>x.trim()).filter(Boolean);
+    return ok({settings:demo.settings});
+  }
+  if(action === "upsertPersonnel"){
+    const p = {...(body.personnel || {})};
+    if(p.PersonnelID && demo.personnel.some(x=>x.PersonnelID===p.PersonnelID)){
+      const idx = demo.personnel.findIndex(x=>x.PersonnelID===p.PersonnelID);
+      demo.personnel[idx] = {...demo.personnel[idx], ...p, UpdatedAt:nowISO()};
+      return ok({personnel:demo.personnel[idx]});
+    }
+    const row = { PersonnelID:`PER-${String(demo.personnel.length+1).padStart(4,"0")}`, PersonnelName:p.PersonnelName||"", Role:p.Role||"Personnel", Department:p.Department||"", ContactNumber:p.ContactNumber||"", CanDrive:p.CanDrive||"N", CanInstall:p.CanInstall||"N", Active:p.Active||"Y", CreatedAt:nowISO(), UpdatedAt:nowISO() };
+    demo.personnel.push(row); return ok({personnel:row});
+  }
+  if(action === "upsertVehicle"){
+    const v = {...(body.vehicle || {})};
+    if(v.VehicleID && demo.vehicles.some(x=>x.VehicleID===v.VehicleID)){
+      const idx = demo.vehicles.findIndex(x=>x.VehicleID===v.VehicleID);
+      demo.vehicles[idx] = {...demo.vehicles[idx], ...v, UpdatedAt:nowISO()}; return ok({vehicle:demo.vehicles[idx]});
+    }
+    const row = { VehicleID:`VEH-${String(demo.vehicles.length+1).padStart(4,"0")}`, VehicleCode:v.VehicleCode||"", VehicleLabel:v.VehicleLabel||"", PlateNo:v.PlateNo||"", PlateEnding:v.PlateEnding||"", Active:v.Active||"Y", CreatedAt:nowISO(), UpdatedAt:nowISO() };
+    demo.vehicles.push(row); return ok({vehicle:row});
+  }
+  if(action === "upsertVehiclePassenger"){
+    const vp = {...(body.vehiclePassenger || {})};
+    const person = demo.personnel.find(p=>p.PersonnelID===vp.PersonnelID) || {};
+    vp.PassengerName = vp.PassengerName || person.PersonnelName || "";
+    if(vp.PassengerID && demo.vehiclePassengers.some(x=>x.PassengerID===vp.PassengerID)){
+      const idx = demo.vehiclePassengers.findIndex(x=>x.PassengerID===vp.PassengerID);
+      demo.vehiclePassengers[idx] = {...demo.vehiclePassengers[idx], ...vp, UpdatedAt:nowISO()}; return ok({vehiclePassenger:demo.vehiclePassengers[idx]});
+    }
+    const row = { PassengerID:`VP-${String(demo.vehiclePassengers.length+1).padStart(4,"0")}`, VehicleID:vp.VehicleID||"", PersonnelID:vp.PersonnelID||"", PassengerName:vp.PassengerName||"", Active:vp.Active||"Y", CreatedAt:nowISO(), UpdatedAt:nowISO() };
+    demo.vehiclePassengers.push(row); return ok({vehiclePassenger:row});
+  }
   if(action === "productionBootstrap") return ok(JSON.parse(JSON.stringify(demo)));
   if(action === "validateAdmin") return ok({ valid: body.pin === (demo.settings.ADMIN_PIN || DEMO_PIN) });
   if(action === "createProject"){
@@ -612,7 +649,7 @@ function vehicleOptions(selected=""){
     return `<option value="${escapeAttr(val)}" ${String(selected)===String(val)?"selected":""}>${escapeHtml(val)} — ${escapeHtml(v.VehicleLabel||"")}</option>`;
   }).join("");
 }
-function personnelName(id){ const p=state.personnel.find(x=>x.PersonnelID===id); return p ? p.PersonnelName : ""; }
+function personnelName(id){ const p=state.personnel.find(x=>x.PersonnelID===id); return p ? (p.PersonnelName || p.FullName || p.Name || "") : ""; }
 function selectedPassengerNames(){
   return Array.from(document.querySelectorAll(".schedPassenger:checked")).map(x=>x.dataset.name || x.value).filter(Boolean);
 }
@@ -774,17 +811,99 @@ function printGatePassesForCurrentWeek(){
   w.document.open(); w.document.write(html); w.document.close();
 }
 
+function yesNo(v){ return String(v || "N").toUpperCase()==="Y" ? "Y" : "N"; }
+function personName(p){ return p ? (p.PersonnelName || p.FullName || p.Name || "") : ""; }
+function personRole(p){ return p ? (p.Role || "Personnel") : "Personnel"; }
+function personnelLabel(p){ const name=personName(p); const role=personRole(p); return `${name || "Unnamed"}${role ? " — " + role : ""}`; }
+function canDrivePersonnel(p){
+  const role = String(personRole(p)).toLowerCase();
+  return yesNo(p.CanDrive)==="Y" || role.includes("driver") || state.drivers.some(d=>String(d.PersonnelID||"")===String(p.PersonnelID||""));
+}
+function driverPeople(){ return state.personnel.filter(p=>p.Active!=="N" && canDrivePersonnel(p)); }
+function settingValue(key, fallback=""){ return state.settings && Object.prototype.hasOwnProperty.call(state.settings,key) ? state.settings[key] : fallback; }
+function collapsible(title, body, opts={}){
+  const open = opts.open ? " open" : "";
+  const count = opts.count !== undefined ? `<span class="badge">${escapeHtml(opts.count)}</span>` : "";
+  return `<details class="settingsBlock"${open}><summary><span>${escapeHtml(title)}</span>${count}</summary><div class="settingsBody">${body}</div></details>`;
+}
+function settingsAdminButton(label, handlerName, cls="primary"){
+  return state.admin ? `<button class="${cls}" onclick="${handlerName}">${escapeHtml(label)}</button>` : "";
+}
+function openSettingsForm(title, fields, values, onSave){
+  const body = fields.map(f=>{
+    const val = values[f.key] ?? f.default ?? "";
+    const help = f.help ? `<div class="hint">${escapeHtml(f.help)}</div>` : "";
+    if(f.type === "textarea") return `<div><label>${escapeHtml(f.label)}</label><textarea id="sf_${escapeAttr(f.key)}" placeholder="${escapeAttr(f.placeholder||"")}">${escapeHtml(val)}</textarea>${help}</div>`;
+    if(f.type === "select") return `<div><label>${escapeHtml(f.label)}</label><select id="sf_${escapeAttr(f.key)}">${(f.options||[]).map(o=>`<option value="${escapeAttr(o.value ?? o)}" ${String(val)===String(o.value ?? o)?"selected":""}>${escapeHtml(o.label ?? o)}</option>`).join("")}</select>${help}</div>`;
+    return `<div><label>${escapeHtml(f.label)}</label><input id="sf_${escapeAttr(f.key)}" value="${escapeAttr(val)}" placeholder="${escapeAttr(f.placeholder||"")}" />${help}</div>`;
+  }).join("");
+  $("projectModalTitle").textContent = title;
+  $("projectModalBadge").textContent = state.admin ? "Admin edit" : "View only";
+  $("projectModalBody").innerHTML = `<div class="settingsForm">${body}</div>`;
+  $("projectModalFooter").innerHTML = `<button data-close="projectModal">Close</button>${state.admin?`<button class="ok" id="btnSettingsFormSave">Save</button>`:""}`;
+  openModal("projectModal");
+  const saveBtn = $("btnSettingsFormSave");
+  if(saveBtn) saveBtn.onclick = e => runAction(e,"Saving settings...", async()=>{
+    const data={};
+    fields.forEach(f=>{ const el=$("sf_"+f.key); data[f.key]=el?el.value.trim():""; });
+    await onSave(data);
+    closeModal("projectModal");
+    await load({silent:true});
+  });
+}
+function editSetting(key, label, help){
+  openSettingsForm(`Edit ${label || key}`,[{key:"Value",label:label||key,type:key==="PROCESS_COLUMNS"?"textarea":"input",help}],{Value:settingValue(key)}, async(data)=>api("upsertSetting",{pin:localStorage.getItem(ADMIN_PIN_KEY)||"", key, value:data.Value}));
+}
+function editPersonnel(id=""){
+  const p = state.personnel.find(x=>String(x.PersonnelID)===String(id)) || {};
+  openSettingsForm(p.PersonnelID?"Edit Personnel":"Add Personnel",[
+    {key:"PersonnelName",label:"Name",help:"Full name shown in assignments, passengers, and production logs."},
+    {key:"Role",label:"Role",placeholder:"Designer, Admin, Driver, Carpenter, Installer",help:"Role is displayed with the name and can be used for filtering."},
+    {key:"Department",label:"Department",placeholder:"Production, Design, Admin, Logistics"},
+    {key:"ContactNumber",label:"Contact Number"},
+    {key:"CanDrive",label:"Can Drive",type:"select",options:["N","Y"],help:"Set to Y so this person appears in driver choices."},
+    {key:"CanInstall",label:"Can Install / Join Field Work",type:"select",options:["N","Y"]},
+    {key:"Active",label:"Active",type:"select",options:["Y","N"]}
+  ], Object.assign({Active:"Y",CanDrive:"N",CanInstall:"N"},p), async(data)=>api("upsertPersonnel",{pin:localStorage.getItem(ADMIN_PIN_KEY)||"", personnel:Object.assign({},p,data)}));
+}
+function editVehicle(id=""){
+  const v = state.vehicles.find(x=>String(x.VehicleID)===String(id)) || {};
+  openSettingsForm(v.VehicleID?"Edit Vehicle":"Add Vehicle",[
+    {key:"VehicleCode",label:"Vehicle Code",placeholder:"TRUCK-1"},
+    {key:"VehicleLabel",label:"Vehicle Label",placeholder:"Isuzu Truck"},
+    {key:"PlateNo",label:"Plate No."},
+    {key:"PlateEnding",label:"Plate Ending",help:"Used later for NCR number coding rules."},
+    {key:"Active",label:"Active",type:"select",options:["Y","N"]}
+  ], Object.assign({Active:"Y"},v), async(data)=>api("upsertVehicle",{pin:localStorage.getItem(ADMIN_PIN_KEY)||"", vehicle:Object.assign({},v,data)}));
+}
+function editVehiclePassenger(id=""){
+  const vp = state.vehiclePassengers.find(x=>String(x.PassengerID)===String(id)) || {};
+  const vehicleOptions = state.vehicles.map(v=>({value:v.VehicleID,label:`${v.VehicleCode || v.VehicleID} — ${v.VehicleLabel || ""}`}));
+  const personOptions = state.personnel.map(p=>({value:p.PersonnelID,label:personnelLabel(p)}));
+  openSettingsForm(vp.PassengerID?"Edit Default Passenger":"Add Default Passenger",[
+    {key:"VehicleID",label:"Vehicle",type:"select",options:vehicleOptions},
+    {key:"PersonnelID",label:"Passenger / Personnel",type:"select",options:personOptions,help:"Designers and Admin can be included here too because this pulls from the full personnel list."},
+    {key:"Active",label:"Active",type:"select",options:["Y","N"]}
+  ], Object.assign({Active:"Y"},vp), async(data)=>api("upsertVehiclePassenger",{pin:localStorage.getItem(ADMIN_PIN_KEY)||"", vehiclePassenger:Object.assign({},vp,data)}));
+}
 function renderSettings(){
-  $("page-settings").innerHTML = `<div class="pageTitle"><div><h1>Settings</h1><div class="hint">Admin-maintained parameters and lists.</div></div></div><div class="grid2">
-    <div class="panel"><h3>Production Process Columns</h3>${PROCESS_COLUMNS.map(x=>`<span class="pill info" style="margin:3px">${escapeHtml(x)}</span>`).join("")}</div>
-    <div class="panel"><h3>Team Management</h3>${state.teams.map(t=>`<div class="card"><div class="cardTitle">${escapeHtml(t.TeamName)}</div><div class="small">Lead: ${escapeHtml(t.TeamLead)}</div><div class="small">Members: ${state.teamMembers.filter(m=>m.TeamID===t.TeamID&&m.Active!=="N").map(m=>m.MemberName).join(", ")||"—"}</div></div>`).join("")||`<div class="hint">No teams yet.</div>`}</div>
-    <div class="panel"><h3>Personnel List</h3>${state.personnel.map(p=>`<div class="card"><div class="cardTitle">${escapeHtml(p.PersonnelName)}</div><div class="small">${escapeHtml(p.Role||"Personnel")}</div></div>`).join("") || `<div class="hint">No personnel records yet.</div>`}</div>
-    <div class="panel"><h3>Drivers</h3>${state.drivers.map(d=>`<div class="card"><div class="cardTitle">${escapeHtml(d.DriverName||d.DriverID)}</div><div class="small">${escapeHtml(d.DriverPhone||"")}</div></div>`).join("") || `<div class="hint">No drivers yet.</div>`}</div>
-    <div class="panel"><h3>Vehicles</h3>${state.vehicles.map(v=>`<div class="card"><div class="cardTitle">${escapeHtml(v.VehicleCode||v.VehicleID)}</div><div class="small">${escapeHtml(v.VehicleLabel||"")} • Plate: ${escapeHtml(v.PlateNo||"—")}</div></div>`).join("") || `<div class="hint">No vehicles yet.</div>`}</div>
-    <div class="panel"><h3>Passenger Defaults</h3>${state.vehiclePassengers.map(vp=>`<div class="card"><div class="cardTitle">${escapeHtml(vp.PassengerName||vp.PersonnelID)}</div><div class="small">Vehicle: ${escapeHtml(vp.VehicleID||"—")}</div></div>`).join("") || `<div class="hint">No passenger defaults yet.</div>`}</div>
-    <div class="panel"><h3>Parameter Groups</h3><div class="small">Admin PIN • Personnel List • Project Defaults • Logistics Defaults • Announcements • Database/App Settings</div></div>
-    <div class="panel"><h3>Current App Settings</h3>${Object.entries(state.settings||{}).map(([k,v])=>detail(k,v)).join("")}</div>
-  </div>`;
+  const processBody = `<div class="pillWrap">${PROCESS_COLUMNS.map(x=>`<span class="pill info">${escapeHtml(x)}</span>`).join("")}</div>${state.admin?`<div class="sectionActions"><button class="primary" onclick="editSetting('PROCESS_COLUMNS','Production Process Columns','Separate each process with a vertical bar |. These become the Kanban columns.')">Edit Processes</button></div>`:""}`;
+  const teamBody = state.teams.map(t=>`<div class="card"><div class="cardTitle">${escapeHtml(t.TeamName)}</div><div class="small">Lead: ${escapeHtml(t.TeamLead || "—")}</div><div class="small">Members: ${escapeHtml(state.teamMembers.filter(m=>m.TeamID===t.TeamID&&m.Active!=="N").map(m=>`${m.MemberName}${m.Role?" — "+m.Role:""}`).join(", ")||"—")}</div></div>`).join("") || `<div class="hint">No teams yet.</div>`;
+  const personnelBody = `${state.admin?`<div class="sectionActions"><button class="primary" onclick="editPersonnel('')">+ Add Personnel</button></div>`:""}` + (state.personnel.map(p=>`<div class="card compactRow"><div><div class="cardTitle">${escapeHtml(personName(p) || p.PersonnelID)}</div><div class="small">${escapeHtml(personRole(p))}${p.Department?" • "+escapeHtml(p.Department):""}${p.ContactNumber?" • "+escapeHtml(p.ContactNumber):""}</div><div class="meta"><span>Can Drive: ${escapeHtml(yesNo(p.CanDrive))}</span><span>Can Install: ${escapeHtml(yesNo(p.CanInstall))}</span></div></div>${state.admin?`<button onclick="editPersonnel('${escapeAttr(p.PersonnelID)}')">Edit</button>`:""}</div>`).join("") || `<div class="hint">No personnel records yet.</div>`);
+  const driversBody = `<div class="hint">Driver choices are based on Personnel records with <b>Can Drive = Y</b> or role containing “Driver”. A separate driver list is only needed later for license/expiry details.</div>` + (driverPeople().map(p=>`<div class="card"><div class="cardTitle">${escapeHtml(personName(p))}</div><div class="small">${escapeHtml(personRole(p))}${p.ContactNumber?" • "+escapeHtml(p.ContactNumber):""}</div></div>`).join("") || `<div class="hint">No driver-capable personnel yet.</div>`);
+  const vehicleBody = `${state.admin?`<div class="sectionActions"><button class="primary" onclick="editVehicle('')">+ Add Vehicle</button></div>`:""}` + (state.vehicles.map(v=>`<div class="card compactRow"><div><div class="cardTitle">${escapeHtml(v.VehicleCode||v.VehicleID)}</div><div class="small">${escapeHtml(v.VehicleLabel||"")} • Plate: ${escapeHtml(v.PlateNo||"—")} • Ending: ${escapeHtml(v.PlateEnding||"—")}</div></div>${state.admin?`<button onclick="editVehicle('${escapeAttr(v.VehicleID)}')">Edit</button>`:""}</div>`).join("") || `<div class="hint">No vehicles yet.</div>`);
+  const passengerBody = `${state.admin?`<div class="sectionActions"><button class="primary" onclick="editVehiclePassenger('')">+ Add Default Passenger</button></div>`:""}` + (state.vehiclePassengers.map(vp=>{ const p=state.personnel.find(x=>x.PersonnelID===vp.PersonnelID)||{}; const v=state.vehicles.find(x=>x.VehicleID===vp.VehicleID)||{}; return `<div class="card compactRow"><div><div class="cardTitle">${escapeHtml(personnelLabel(p) || vp.PassengerName || vp.PersonnelID)}</div><div class="small">Vehicle: ${escapeHtml(v.VehicleCode || vp.VehicleID || "—")}</div></div>${state.admin?`<button onclick="editVehiclePassenger('${escapeAttr(vp.PassengerID)}')">Edit</button>`:""}</div>`; }).join("") || `<div class="hint">No passenger defaults yet.</div>`);
+  const settingsBody = Object.entries(state.settings||{}).map(([k,v])=>`<div class="card compactRow"><div>${detail(k,v)}</div>${state.admin?`<button onclick="editSetting('${escapeAttr(k)}','${escapeAttr(k)}','Update this app parameter without opening Google Sheets.')">Edit</button>`:""}</div>`).join("") || `<div class="hint">No settings yet.</div>`;
+  $("page-settings").innerHTML = `<div class="pageTitle"><div><h1>Settings</h1><div class="hint">Admin-maintained parameters and lists. Sections are collapsible for a cleaner view.</div></div></div>
+    <div class="settingsStack">
+      ${collapsible("App Settings", settingsBody, {open:true, count:Object.keys(state.settings||{}).length})}
+      ${collapsible("Production Process Columns", processBody, {count:PROCESS_COLUMNS.length})}
+      ${collapsible("Team Management", teamBody, {count:state.teams.length})}
+      ${collapsible("Personnel List", personnelBody, {open:true, count:state.personnel.length})}
+      ${collapsible("Drivers", driversBody, {count:driverPeople().length})}
+      ${collapsible("Vehicles", vehicleBody, {count:state.vehicles.length})}
+      ${collapsible("Default Passengers / Crew", passengerBody, {count:state.vehiclePassengers.length})}
+    </div>`;
 }
 function renderAbout(){ $("page-about").innerHTML = `<div class="pageTitle"><div><h1>About</h1><div class="hint">System information and credits.</div></div></div><div class="panel aboutBox"><h2>SJTC Production Department Dashboard</h2><p>A production and logistics coordination system for monitoring projects, tracking item-level production progress, managing partial delivery batches, and coordinating logistics requests.</p><p><b>Version:</b> 1.2<br><b>Company:</b> SJTC Manufacturing Inc. / Focolare Carpentry</p><p><b>Developed by:</b> Engr. CK Empeynado</p><p class="small">This system uses GitHub Pages for the frontend, Cloudflare Worker as proxy, Google Apps Script as API, and Google Sheets as database. It is intended for internal production monitoring and logistics coordination.</p></div>`; }
 function openModal(id){ $(id).style.display="flex"; bindCloseButtons(); applyFieldTips(); }
