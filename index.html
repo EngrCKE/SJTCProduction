@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>SJTC Production Department Dashboard v1.1.5</title>
+  <title>SJTC Production Department Dashboard v1.1.6</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -61,7 +61,7 @@
     <div class="modalB">
       <label>Admin PIN</label>
       <input id="adminPinInput" type="password" placeholder="Enter admin PIN" />
-      <div class="hint">Default in demo mode is <b>123456</b>. Change this in Settings_V1 / ADMIN_PIN.</div>
+      <div class="hint">Use your authorized dashboard admin PIN.</div>
     </div>
     <div class="modalF">
       <button data-close="adminModal">Close</button>
@@ -155,6 +155,12 @@
   </div>
 </div>
 
+<div id="loadingOverlay" class="loadingOverlay" style="display:none;">
+  <div class="loadingCard">
+    <div class="spinner"></div>
+    <div class="loadingText">Loading...</div>
+  </div>
+</div>
 <script src="app.js"></script>
 </body>
 </html>
