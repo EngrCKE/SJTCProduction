@@ -1,5 +1,5 @@
 /***********************
- * SJTC Production Department Dashboard v1.2.9
+ * SJTC Production Department Dashboard v1.2.10
  * Frontend for GitHub Pages
  * Set PRODUCTION_API_URL to your Cloudflare Worker URL after deployment.
  ***********************/
@@ -55,7 +55,7 @@ const demo = (() => {
     { PersonnelID:"PER-0007", PersonnelName:"Design Staff", Role:"Designer", Department:"Design", ContactNumber:"", CanDrive:"N", CanInstall:"N", Active:"Y" }
   ];
   return {
-    settings: { ADMIN_PIN: DEMO_PIN, APP_NAME: "SJTC Production Department Dashboard", VERSION: "1.2.9", PROCESS_COLUMNS: DEFAULT_PROCESS_COLUMNS.join("|") },
+    settings: { ADMIN_PIN: DEMO_PIN, APP_NAME: "SJTC Production Department Dashboard", VERSION: "1.2.10", PROCESS_COLUMNS: DEFAULT_PROCESS_COLUMNS.join("|") },
     personnel,
     drivers: [{ DriverID:"DRV-0001", PersonnelID:"PER-0005", DriverName:"Mang Tony", DriverPhone:"0917 555 1111", Active:"Y" }],
     vehicles: [{ VehicleID:"VEH-0001", VehicleCode:"TRUCK-1", VehicleLabel:"Truck 1", PlateNo:"ABC 1234", PlateEnding:"4", Active:"Y" }],
@@ -632,8 +632,8 @@ function renderLogistics(){
   const deliveryItems = itemsForDeliveryList();
   $("page-logistics").innerHTML = `
     <div class="pageTitle"><div><h1>Logistics</h1><div class="hint">Native logistics module. Staff can submit and view requests. Admin can schedule or reschedule by drag/drop.</div></div><button class="primary" id="btnSubmitLogisticsTop">+ Submit Logistics Request</button></div>
-    <div class="split"><div class="panel"><h3>Pending Requests</h3><div class="hint">${state.admin ? "Drag pending cards into a calendar day to schedule. Click any card to view details." : "Read-only: pending requests awaiting approval/scheduling. Click any card to view details."}</div><div class="pendingList" style="margin-top:10px">${pending.map(pendingLogisticsCard).join("") || `<div class="hint">No pending requests.</div>`}</div></div>
-      <div class="panel"><div class="line" style="justify-content:space-between"><h3>1-Week Rolling Calendar</h3><div class="line"><button id="logPrev">← Previous Week</button><button class="primary" id="logCurrent">Current Week</button><button id="logNext">Next Week →</button></div></div><div class="hint">${state.admin ? "Drag scheduled cards to a different day to reschedule." : "Read-only weekly logistics calendar."}</div><div class="calendarGrid">${dates.map(d=>logisticsDayBox(d,scheduled)).join("")}</div></div></div>
+    <div class="split logisticsSplit"><div class="panel logisticsPendingPanel"><h3>Pending Requests</h3><div class="hint">${state.admin ? "Drag pending cards into a calendar day to schedule. Click any card to view details." : "Read-only: pending requests awaiting approval/scheduling. Click any card to view details."}</div><div class="pendingList" style="margin-top:10px">${pending.map(pendingLogisticsCard).join("") || `<div class="hint">No pending requests.</div>`}</div></div>
+      <div class="panel logisticsCalendarPanel"><div class="line" style="justify-content:space-between"><h3>1-Week Rolling Calendar</h3><div class="line"><button id="logPrev">← Previous Week</button><button class="primary" id="logCurrent">Current Week</button><button id="logNext">Next Week →</button></div></div><div class="hint">${state.admin ? "Drag scheduled cards to a different day to reschedule." : "Read-only weekly logistics calendar."}</div><div class="calendarGrid">${dates.map(d=>logisticsDayBox(d,scheduled)).join("")}</div></div></div>
     <div class="panel" style="margin-top:12px"><div class="line" style="justify-content:space-between"><div><h3>Dispatch & Gate Pass</h3><div class="hint">View confirmed dispatches for the selected week and print gate passes.</div></div><div class="line"><button class="primary" id="btnOpenDispatchView">Open Dispatch View</button><button class="ok" id="btnPrintGatePasses">Generate Gate Pass</button></div></div></div>
     <div class="panel" style="margin-top:12px">
       <div class="line" style="justify-content:space-between;align-items:flex-start">
@@ -1178,7 +1178,7 @@ function renderSettings(){
       ${adminOnly}
     </div>`;
 }
-function renderAbout(){ $("page-about").innerHTML = `<div class="pageTitle"><div><h1>About</h1><div class="hint">System information and credits.</div></div></div><div class="panel aboutBox"><h2>SJTC Production Department Dashboard</h2><p>A production and logistics coordination system for monitoring projects, tracking item-level production progress, managing partial delivery batches, and coordinating logistics requests.</p><p><b>Version:</b> 1.2.9<br><b>Company:</b> SJTC Manufacturing Inc. / Focolare Carpentry</p><p><b>Developed by:</b> Engr. CK Empeynado</p><p class="small">This system uses GitHub Pages for the frontend, Cloudflare Worker as proxy, Google Apps Script as API, and Google Sheets as database. It is intended for internal production monitoring and logistics coordination.</p></div>`; }
+function renderAbout(){ $("page-about").innerHTML = `<div class="pageTitle"><div><h1>About</h1><div class="hint">System information and credits.</div></div></div><div class="panel aboutBox"><h2>SJTC Production Department Dashboard</h2><p>A production and logistics coordination system for monitoring projects, tracking item-level production progress, managing partial delivery batches, and coordinating logistics requests.</p><p><b>Version:</b> 1.2.10<br><b>Company:</b> SJTC Manufacturing Inc. / Focolare Carpentry</p><p><b>Developed by:</b> Engr. CK Empeynado</p><p class="small">This system uses GitHub Pages for the frontend, Cloudflare Worker as proxy, Google Apps Script as API, and Google Sheets as database. It is intended for internal production monitoring and logistics coordination.</p></div>`; }
 function openModal(id){ $(id).style.display="flex"; bindCloseButtons(); applyFieldTips(); }
 function closeModal(id){ $(id).style.display="none"; }
 function bindCloseButtons(){ document.querySelectorAll("[data-close]").forEach(b=>b.onclick=()=>closeModal(b.dataset.close)); }
