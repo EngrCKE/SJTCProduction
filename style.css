@@ -119,7 +119,7 @@ body.actionBusy{cursor:progress}body.actionBusy button{pointer-events:none}
 @media(max-width:700px){.compactDeptPicker{grid-template-columns:1fr}}
 
 
-/* v1.2.8 compact logistics display + settings defaults */
+/* v1.2.10 logistics calendar layout patch */
 .compactLogisticsTile{gap:3px !important;padding:8px 9px !important}
 .compactLogisticsTile .logTitle{font-weight:900;font-size:13px;line-height:1.2;color:var(--txt)}
 .compactLogisticsTile .logType{font-size:11px;color:var(--muted);line-height:1.15}
@@ -137,3 +137,17 @@ body.actionBusy{cursor:progress}body.actionBusy button{pointer-events:none}
 .miniBtn{font-size:11px;padding:5px 8px;border-radius:999px}
 .deptPickGroup[open]{background:rgba(255,255,255,.025)}
 .memberPickerList{max-height:360px;overflow:auto}
+
+
+/* v1.2.10 logistics calendar layout patch */
+.logisticsSplit{grid-template-columns:260px minmax(0,1fr) !important;align-items:start}
+.logisticsPendingPanel{min-width:0}
+.logisticsCalendarPanel{min-width:0;overflow-x:auto}
+.logisticsCalendarPanel .calendarGrid{min-width:980px;grid-template-columns:repeat(7,minmax(130px,1fr))}
+.logisticsCalendarPanel .dayBox{min-width:0}
+.logisticsCalendarPanel .dayBody2{min-height:220px;align-content:start;grid-auto-rows:max-content}
+.logisticsCalendarPanel .compactLogisticsTile{min-width:0;max-width:100%;padding:7px 8px !important}
+.compactLogisticsTile .logTitle{white-space:normal;overflow:visible;text-overflow:clip;word-break:break-word}
+.compactLogisticsTile .logLine,.compactLogisticsTile .logType{white-space:normal;overflow:visible;text-overflow:clip;word-break:break-word}
+.pendingList .compactLogisticsTile .logLine{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media(max-width:900px){.logisticsSplit{grid-template-columns:1fr !important}.logisticsCalendarPanel .calendarGrid{min-width:900px}}
